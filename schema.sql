@@ -112,14 +112,14 @@ CREATE FUNCTION createAlias (originalTag TEXT, aliasName TEXT)
             WHERE name = originalTag;
 
         IF (tagID_ IS NULL)
-            THEN RETURN "Tag does not exist";
+            THEN RETURN 'Tag does not exist';
         END IF;
 
         INSERT INTO
             tag_lookup (name, tagId, isAlias)
             VALUES (aliasName, tagID_, TRUE);
 
-        RETURN concat("Created alias ", aliasName, " that points to ", tagName);
+        RETURN concat('Created alias ', aliasName, ' that points to ', tagName);
     END
     $$;
 
@@ -138,20 +138,24 @@ CREATE FUNCTION deleteTag (tagName TEXT, requester BIGINT)
             FROM tag_lookup
             WHERE name = tagName;
 
+        IF (tagID_ IS NULL)
+        THEN RETURN 'This tag does not exist';
+        END IF;
+
         IF (isTagOwner(tagID_, requester) IS FALSE)
-        THEN RETURN "You do not own this tag";
+        THEN RETURN 'You do not own this tag';
         END IF;
 
         IF (isAlias_ IS FALSE)
             THEN
                 DELETE FROM tag_lookup WHERE tagId = tagID_;
                 DELETE FROM tags_new WHERE id = tagID_;
-                RETURN "Tag deleted";
+                RETURN 'Tag deleted';
         END IF;
         IF (isAlias_ IS TRUE)
             THEN
                 DELETE FROM tag_lookup WHERE name = tagName;
-                RETURN "Tag alias deleted";
+                RETURN 'Tag alias deleted';
         END IF;
     END
     $$;

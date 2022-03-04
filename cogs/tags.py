@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncpg
 import discord
-from typing import TYPE_CHECKING, Dict, Union
+from typing import TYPE_CHECKING, Dict, Union, Optional
 
 if TYPE_CHECKING:
     from bot import Alfred
@@ -13,6 +13,7 @@ def setup(bot: Alfred):
     bot.application_command(aliasTag)
     bot.application_command(deleteTag)
     bot.application_command(infoTag)
+    bot.application_command(editTag)
 
 
 class AutoCompletableCommand(discord.SlashCommand):
@@ -54,19 +55,53 @@ class tag(AutoCompletableCommand, guilds=[514232441498763279]):
         await self.send(data['findtag'][1])
 
 
+class TagAddModal(discord.ui.Modal):
+    def __init__(self, name: str, client: Alfred):
+        self.client = client
+        super().__init__("Add Tag")
+        self.add_item(
+            discord.ui.TextInput(
+                "Name", value=name, placeholder="The name of your tag", style=discord.TextInputStyle.short, max_length=32, min_length=3
+            )
+        )
+        self.add_item(discord.ui.TextInput(
+            "Content", placeholder="The content of your tag", style=discord.TextInputStyle.long, max_length=2000, min_length=1
+        ))
+
+    async def callback(self, interaction: discord.Interaction):
+        name = self.children[0].value.strip().lower() # type: ignore
+        content = self.children[1].value.strip().lower() # type: ignore
+
+        if name.isdigit() or self.client.get_command("tag").get_command(name): # type: ignore
+            return await interaction.response.send_message("Invalid tag name", ephemeral=True)
+
+        content = discord.utils.escape_mentions(content.strip())
+
+        query = "SELECT createTag($1, $2, $3)"
+        try:
+            await self.client.db.execute(query, name, content, interaction.user.id) # type: ignore
+        except asyncpg.UniqueViolationError:
+            return await interaction.response.send_message("Tag already exists", ephemeral=True)
+
+        return await interaction.response.send_message(f"Created tag {name}", ephemeral=True)
+
+
 class addTag(discord.SlashCommand, name="tag-add", guilds=[514232441498763279]):
     """
     Adds a tag
     """
     name: str = discord.Option(description="The name of the tag to create")
-    content: str = discord.Option(description="The content of the tag")
+    content: Optional[str] = discord.Option(description="The content of the tag")
 
     client: Alfred
 
     async def callback(self) -> None:
         self.name = self.name.strip().lower()
-        if not self.name or len(self.name) > 32 or self.name.isdigit() or self.client.get_command("tag").get_command(self.name):
+        if not self.name or 3 > len(self.name) > 32 or self.name.isdigit() or self.client.get_command("tag").get_command(self.name):
             return await self.send("Invalid tag name", ephemeral=True)
+
+        if not self.content:
+            return await self.interaction.response.send_modal(TagAddModal(self.name, self.client))
 
         content = discord.utils.escape_mentions(self.content.strip())
         if len(content) > 2000:
@@ -156,3 +191,58 @@ class infoTag(AutoCompletableCommand, name="tag-info", guilds=[51423244149876327
             f"Created <t:{round(created_timestamp.timestamp())}:F>\n"
 
         await self.send(embed=e)
+
+
+class TagEditModal(discord.ui.Modal):
+    def __init__(self, tag_id: int, client: Alfred):
+        self.tag = tag_id
+        self.client = client
+        super().__init__("Edit Tag")
+        self.add_item(discord.ui.TextInput(
+            "Content", placeholder="The new content for your tag", style=discord.TextInputStyle.long, max_length=2000, min_length=1
+        ))
+
+    async def callback(self, interaction: discord.Interaction):
+        query = """
+        UPDATE tags_new
+        SET
+            content = $1
+        WHERE
+            id = $2
+        """
+        await self.client.db.execute(query, self.children[0].value, self.tag) # type: ignore
+        await interaction.response.send_message("Updated tag", ephemeral=True)
+
+class editTag(AutoCompletableCommand, name="tag-edit", guilds=[514232441498763279]):
+    name: str = discord.Option(description="The tag to update", autocomplete=True)
+    content: Optional[str] = discord.Option(description="The new content of the tag. Not filling this in will bring up a modal")
+
+    async def callback(self) -> None:
+        name = self.name.strip().lower()
+        query = """
+                SELECT
+                    tl.tagId, tn.owner
+                FROM tag_lookup tl
+                INNER JOIN tags_new tn ON tn.id = tl.tagId
+                WHERE tl.name = $1
+                """
+
+        lookup = await self.client.db.fetchrow(query, name)
+        if not lookup:
+            return await self.send("Tag not found", ephemeral=True)
+
+        if lookup['owner'] != self.interaction.user.id:
+            return await self.send("You do not own this tag", ephemeral=True)
+
+        if not self.content:
+            return await self.interaction.response.send_modal(TagEditModal(lookup['tagid'], self.client))
+
+        query = """
+        UPDATE tags_new
+        SET
+            content = $1
+        WHERE
+            id = $2
+        """
+        await self.client.db.execute(query, self.content, lookup['tagid']) # type: ignore
+        await self.send("Updated tag", ephemeral=True)
