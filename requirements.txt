@@ -1,0 +1,4 @@
+git+https://github.com/IAmTomahawkx/enhanced-discord.py
+asyncpg
+jishaku
+aiohttp

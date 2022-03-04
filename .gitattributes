@@ -1,0 +1,6 @@
+# automatically normalize line endings
+* text=auto
+
+*.py    text
+*.rst   text
+*.yml   text
