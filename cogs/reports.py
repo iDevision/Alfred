@@ -320,7 +320,11 @@ class reportMessage(discord.MessageCommand, name="report", guilds=[5142324414987
     message: discord.Message
 
     async def callback(self) -> None:
-        if self.message.author._roles.has(550825339077787708) or self.message.author._roles.has(519059592521449472):
+        author = self.message.author
+        if isinstance(author, discord.User):
+            author = self.client.get_guild(514232441498763279).get_member(author.id)
+
+        if author is not None and (author._roles.has(550825339077787708) or author._roles.has(519059592521449472)):
             return await self.send("You may not report messages from this user", ephemeral=True)
 
         modal = ReportMessageModal(self.client, self.message)
